@@ -1,0 +1,9 @@
+.env
+.idea
+
+/knowledge-vault-backend/.idea
+/knowledge-vault-backend/target
+
+
+
+
