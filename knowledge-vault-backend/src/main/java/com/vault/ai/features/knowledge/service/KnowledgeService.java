@@ -125,4 +125,9 @@ public class KnowledgeService {
 
         return new GraphDataResponse(nodes, edges);
     }
+
+    public List<String> getRecommendedTopics(Long noteId) {
+        // This calls the Cypher query we wrote in the Repository
+        return noteNodeRepository.suggestRelatedTopics(noteId);
+    }
 }
