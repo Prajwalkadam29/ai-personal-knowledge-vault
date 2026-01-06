@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import com.vault.ai.features.knowledge.dto.GraphDataResponse;
@@ -30,21 +31,36 @@ public class KnowledgeService {
 
     @Transactional("neo4jTransactionManager")
     public void syncNoteToGraph(Long id, String title, String content, List<String> tags) {
-        // 1. Save to Knowledge Graph (Neo4j)
+        // 1. Find similar notes to create links (Concept Linking)
+        SearchRequest linkRequest = SearchRequest.builder()
+                .query(content)
+                .topK(3)
+                .similarityThreshold(0.7) // Only link if highly relevant
+                .build();
+
+        List<Document> similarDocs = vectorStore.similaritySearch(linkRequest);
+
+        Set<NoteNode> existingLinks = similarDocs.stream()
+                .map(doc -> doc.getMetadata().get("noteId"))
+                .filter(noteId -> noteId != null && !noteId.equals(id)) // Don't link to self
+                .map(noteId -> noteNodeRepository.findById(((Number) noteId).longValue()).orElse(null))
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        // 2. Build and save the node
         NoteNode node = NoteNode.builder()
                 .noteId(id)
                 .title(title)
                 .tags(tags.stream()
                         .map(name -> TagNode.builder().name(name).build())
                         .collect(Collectors.toSet()))
+                .relatedNotes(existingLinks) // Added the links here
                 .build();
+
         noteNodeRepository.save(node);
 
-        // 2. Save to Vector Store (Neo4j Vector Index)
-        Document doc = new Document(content, Map.of(
-                "noteId", id,
-                "title", title
-        ));
+        // 3. Save to Vector Store
+        Document doc = new Document(content, Map.of("noteId", id, "title", title));
         vectorStore.add(List.of(doc));
     }
 
