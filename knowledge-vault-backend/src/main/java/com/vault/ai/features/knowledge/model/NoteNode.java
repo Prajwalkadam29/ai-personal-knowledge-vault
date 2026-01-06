@@ -25,4 +25,9 @@ public class NoteNode {
     @Builder.Default
     @Relationship(type = "HAS_TAG", direction = Relationship.Direction.OUTGOING)
     private Set<TagNode> tags = new HashSet<>();
+
+    // NEW: Self-referencing relationship for Note-to-Note linking
+    @Builder.Default
+    @Relationship(type = "RELATED_TO", direction = Relationship.Direction.OUTGOING)
+    private Set<NoteNode> relatedNotes = new HashSet<>();
 }
