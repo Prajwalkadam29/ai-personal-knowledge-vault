@@ -21,6 +21,8 @@ public class NoteNode {
 
     private String title;
 
+    private Long userId;
+
     // The 'tags' will be separate nodes connected to this note
     @Builder.Default
     @Relationship(type = "HAS_TAG", direction = Relationship.Direction.OUTGOING)
