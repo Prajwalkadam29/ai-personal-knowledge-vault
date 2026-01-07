@@ -1,5 +1,6 @@
 package com.vault.ai.features.knowledge.service;
 
+import com.vault.ai.features.auth.model.User;
 import com.vault.ai.features.knowledge.dto.SearchResult;
 import com.vault.ai.features.knowledge.model.NoteNode;
 import com.vault.ai.features.knowledge.model.TagNode;
@@ -8,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,47 +31,58 @@ public class KnowledgeService {
     private final VectorStore vectorStore;
     private final Driver neo4jDriver;
 
+    // Update syncNoteToGraph signature
     @Transactional("neo4jTransactionManager")
-    public void syncNoteToGraph(Long id, String title, String content, List<String> tags) {
-        // 1. Find similar notes to create links (Concept Linking)
+    public void syncNoteToGraph(Long id, Long userId, String title, String content, List<String> tags) {
+
+        // 1. CONCEPT LINKING: Only search for similar notes BELONGING TO THIS USER
         SearchRequest linkRequest = SearchRequest.builder()
                 .query(content)
                 .topK(3)
-                .similarityThreshold(0.7) // Only link if highly relevant
+                .similarityThreshold(0.7)
+                .filterExpression("userId == " + userId) // CRITICAL: Security Filter
                 .build();
 
         List<Document> similarDocs = vectorStore.similaritySearch(linkRequest);
 
         Set<NoteNode> existingLinks = similarDocs.stream()
                 .map(doc -> doc.getMetadata().get("noteId"))
-                .filter(noteId -> noteId != null && !noteId.equals(id)) // Don't link to self
+                .filter(noteId -> noteId != null && !noteId.equals(id))
                 .map(noteId -> noteNodeRepository.findById(((Number) noteId).longValue()).orElse(null))
                 .filter(java.util.Objects::nonNull)
                 .collect(Collectors.toSet());
 
-        // 2. Build and save the node
+        // 2. SAVE NOTE NODE WITH USER ID
         NoteNode node = NoteNode.builder()
                 .noteId(id)
+                .userId(userId) // Set the owner
                 .title(title)
                 .tags(tags.stream()
                         .map(name -> TagNode.builder().name(name).build())
                         .collect(Collectors.toSet()))
-                .relatedNotes(existingLinks) // Added the links here
+                .relatedNotes(existingLinks)
                 .build();
 
         noteNodeRepository.save(node);
 
-        // 3. Save to Vector Store
-        Document doc = new Document(content, Map.of("noteId", id, "title", title));
+        // 3. VECTOR STORE: Store userId in metadata for future filtering
+        Document doc = new Document(content, Map.of(
+                "noteId", id,
+                "userId", userId, // CRITICAL: Metadata for filtering
+                "title", title
+        ));
         vectorStore.add(List.of(doc));
     }
 
+    // Update Search logic
     public List<SearchResult> searchSimilarNotes(String query, int topK) {
+        User currentUser = (User) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
         // 1. Correct builder pattern for Spring AI 1.1.2
         SearchRequest searchRequest = SearchRequest.builder()
                 .query(query)
                 .topK(topK)
-                .similarityThreshold(0.5) // Adjust precision (0.0 to 1.0)
+                .similarityThreshold(0.5)
+                .filterExpression("userId == " + currentUser.getId()) // SECURE SEARCH
                 .build();
 
         // 2. Execute search
@@ -87,31 +100,34 @@ public class KnowledgeService {
     }
 
     public GraphDataResponse getFullGraph() {
+        // 1. Get the current user from Security Context
+        User currentUser = (User) SecurityContextHolder.getContext()
+                .getAuthentication()
+                .getPrincipal();
+        Long currentUserId = currentUser.getId();
+
         List<GraphDataResponse.NodeDto> nodes = new ArrayList<>();
         List<GraphDataResponse.EdgeDto> edges = new ArrayList<>();
 
         try (Session session = neo4jDriver.session()) {
-            // Cypher query to get all Notes, all Tags, and the relationships
+            // 2. UPDATED CYPHER: Added WHERE n.userId = $userId
             String cypher = """
             MATCH (n:Note)
+            WHERE n.userId = $userId
             OPTIONAL MATCH (n)-[:HAS_TAG]->(t:Tag)
             RETURN n.noteId AS noteId, n.title AS title, t.name AS tagName
             """;
 
-            session.run(cypher).list().forEach(record -> {
-                // SAFE EXTRACTION: Check if noteId is null before converting to long
+            session.run(cypher, Map.of("userId", currentUserId)).list().forEach(record -> {
                 var noteIdValue = record.get("noteId");
                 if (!noteIdValue.isNull()) {
                     String noteIdStr = "note_" + noteIdValue.asLong();
 
-                    // Add Note node if not already present
                     if (nodes.stream().noneMatch(n -> n.getId().equals(noteIdStr))) {
                         nodes.add(new GraphDataResponse.NodeDto(noteIdStr, record.get("title").asString(), "NOTE"));
                     }
 
-                    // SAFE EXTRACTION: Check if tag exists
                     var tagValue = record.get("tagName");
-
                     if (!tagValue.isNull()) {
                         String tagId = "tag_" + tagValue.asString();
                         if (nodes.stream().noneMatch(n -> n.getId().equals(tagId))) {
@@ -122,7 +138,6 @@ public class KnowledgeService {
                 }
             });
         }
-
         return new GraphDataResponse(nodes, edges);
     }
 

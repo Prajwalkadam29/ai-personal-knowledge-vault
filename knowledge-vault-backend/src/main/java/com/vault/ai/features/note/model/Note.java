@@ -1,5 +1,7 @@
 package com.vault.ai.features.note.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.vault.ai.features.auth.model.User;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -27,9 +29,23 @@ public class Note {
     @Column(columnDefinition = "TEXT")
     private String summary; // Will be filled by AI later
 
-    @CreationTimestamp
-    private LocalDateTime createdAt;
+    // ADD THIS BLOCK: Every note must now belong to a user
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id", nullable = false)
+    @JsonIgnore // Typically, you don't want the whole User object in your Note JSON response
+    private User user;
 
-    @UpdateTimestamp
+    private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+
+    @PrePersist
+    protected void onCreate() {
+        createdAt = LocalDateTime.now();
+        updatedAt = LocalDateTime.now();
+    }
+
+    @PreUpdate
+    protected void onUpdate() {
+        updatedAt = LocalDateTime.now();
+    }
 }

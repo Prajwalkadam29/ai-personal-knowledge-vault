@@ -13,6 +13,9 @@ import java.util.List;
 import com.vault.ai.features.ai.service.AiService;
 import com.vault.ai.features.ai.dto.NoteAnalysisResponse;
 
+import com.vault.ai.features.auth.model.User;
+import org.springframework.security.core.context.SecurityContextHolder;
+
 @Service
 @RequiredArgsConstructor
 public class NoteService {
@@ -23,30 +26,33 @@ public class NoteService {
     // Explicitly use the JPA transaction manager (usually named "transactionManager")
     @Transactional("transactionManager")
     public Note createNote(NoteRequest request) {
-        // 1. Create initial Note
+        // 1. EXTRACT CURRENT USER FROM SECURITY CONTEXT
+        User currentUser = (User) SecurityContextHolder.getContext()
+                .getAuthentication()
+                .getPrincipal();
+
+        // 2. BUILD THE NOTE WITH USER OWNERSHIP
         Note note = Note.builder()
                 .title(request.getTitle())
                 .content(request.getContent())
+                .user(currentUser) // Stamped with owner
                 .build();
 
         NoteAnalysisResponse analysis = null;
-
-        // 2. AI Orchestration: Get Summary and Tags
         try {
             analysis = aiService.analyzeNote(note.getTitle(), note.getContent());
             note.setSummary(analysis.summary());
-            // Note: We will handle the "Tags" in the Graph Module (Neo4j) next!
         } catch (Exception e) {
-            // Log error but allow note creation to succeed without AI if Groq is down
             System.err.println("AI Analysis failed: " + e.getMessage());
         }
 
         Note savedNote = noteRepository.save(note);
 
-        // 2. Only sync to Neo4j if analysis was successful
+        // 3. SYNC TO GRAPH WITH USER ID
         if (analysis != null) {
             knowledgeService.syncNoteToGraph(
                     savedNote.getId(),
+                    currentUser.getId(), // NEW PARAMETER
                     savedNote.getTitle(),
                     savedNote.getContent(),
                     analysis.tags()
@@ -56,8 +62,13 @@ public class NoteService {
         return savedNote;
     }
 
+    // UPDATE: Users should only see their own notes
     public List<Note> getAllNotes() {
-        return noteRepository.findAll();
+        User currentUser = (User) SecurityContextHolder.getContext()
+                .getAuthentication()
+                .getPrincipal();
+        // You'll need to add findByUser to NoteRepository
+        return noteRepository.findByUser(currentUser);
     }
 
     public Note getNoteById(Long id) {

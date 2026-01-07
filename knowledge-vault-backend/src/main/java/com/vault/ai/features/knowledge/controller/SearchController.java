@@ -1,10 +1,12 @@
 package com.vault.ai.features.knowledge.controller;
 
+import com.vault.ai.features.auth.model.User;
 import com.vault.ai.features.knowledge.dto.SearchResult;
 import com.vault.ai.features.knowledge.service.KnowledgeService;
 import com.vault.ai.features.note.repository.NoteRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -21,8 +23,16 @@ public class SearchController {
 
     @GetMapping("/hybrid")
     public ResponseEntity<Map<String, Object>> hybridSearch(@RequestParam String query) {
+        // 1. Get the current logged-in user
+        User currentUser = (User) SecurityContextHolder.getContext()
+                .getAuthentication()
+                .getPrincipal();
+
+        // 2. Perform Secure Semantic Search (Already user-aware in KnowledgeService)
         var semanticResults = knowledgeService.searchSimilarNotes(query, 5);
-        var keywordResults = noteRepository.findByTitleContainingIgnoreCaseOrContentContainingIgnoreCase(query, query);
+
+        // 3. Perform SECURE Keyword Search (Updated to include User)
+        var keywordResults = noteRepository.searchByKeywordAndUser(query, currentUser);
 
         Map<String, Object> response = new HashMap<>();
         response.put("semanticResults", semanticResults);
