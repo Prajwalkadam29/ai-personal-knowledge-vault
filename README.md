@@ -2,27 +2,28 @@
 
 An intelligent **"Second Brain"** application built with **Spring Boot 3.5.9** and **Java 21**, featuring automated technical insights and a multi-database architecture. This system doesn't just store notes; it understands them using **Llama 3.3 (Groq)** and creates a navigable knowledge graph in **Neo4j**.
 
-## 🚀 Key Features
+## 🚀 Current Implementation (Phase 1: The Engine)
 
-* **AI-Powered Summarization:** Automatically generates concise technical summaries for every note using Groq's Llama 3.3 model.
-
-
-* **Automated Tagging:** Extracts relevant technical tags (e.g., #Java, #Microservices) without manual input.
+* **Multi-Tenant Security:** Full data isolation using JWT and Google OAuth2. User A can never see, search, or link to User B's knowledge.
 
 
-* **Semantic Search:** Finds notes based on meaning and concepts rather than exact keywords using **Vector Embeddings**.
+* **Three-Brain Storage:**
+
+    - **Relational (PostgreSQL):** Handles structured data, user profiles, and note metadata.
+
+    - **Graph (Neo4j):** Maps conceptual links between notes and tags.
+
+    - **Vector (Neo4j Vector Store):** Enables "Semantic Search" using AI embeddings.
 
 
-* **Concept Linking:** Automatically detects and creates physical relationships (`RELATED_TO`) between conceptually similar notes.
+* **AI Orchestration:** Integrated with Groq (Llama 3.3) for automated note summarization and tag generation.
 
 
-* **Graph Visualization API:** Exposes a complex node-edge data structure to render interactive knowledge maps.
+* **Hybrid Search:** Combines SQL keyword matching with Vector-based similarity search.
 
 
-* **Hybrid Search:** Combines traditional PostgreSQL keyword matching with Neo4j vector similarity for high-precision retrieval.
+* **Automated Testing:** A robust suite of 8 tests covering Unit, Service-Integration, and Security-Isolation layers.
 
-
-* **Smart Recommendations:** Suggests new technical topics based on existing knowledge clusters using Cypher graph traversal.
 ---
 
 ## 🛠 Tech Stack
@@ -31,6 +32,7 @@ An intelligent **"Second Brain"** application built with **Spring Boot 3.5.9** a
 * **Java 21** (Leveraging Virtual Threads for AI I/O).
 * **Spring Boot 3.5.9**.
 * **Spring AI 1.1.2** (Orchestrating LLM and Vector Store interactions).
+* **Security:** Spring Security, JWT, Google OAuth2
 * **PostgreSQL** (Source of Truth for raw data and metadata).
 * **Neo4j** (Graph Database & Vector Store for relationships and embeddings).
 * **Groq API** (Llama 3.3-70b-versatile for high-speed inference).
@@ -66,35 +68,87 @@ Update `src/main/resources/application.properties`:
 ```properties
 # PostgreSQL
 spring.datasource.url=jdbc:postgresql://localhost:5432/knowledge_vault
-spring.datasource.username=your_user
-spring.datasource.password=your_pass
+spring.datasource.username=${POSTGRES_USERNAME}
+spring.datasource.password=${POSTGRES_PASSWORD}
 
 # Neo4j
 spring.neo4j.uri=bolt://localhost:7687
-spring.neo4j.authentication.password=your_pass
+spring.neo4j.authentication.password=${NEO4J_PASSWORD}
 
 # Groq (AI)
-spring.ai.openai.api-key=your_groq_key
+spring.ai.openai.api-key=${GROQ_API_KEY}
 spring.ai.openai.base-url=https://api.groq.com/openai
+
+# JWT Security
+# You can generate a random 256-bit key online or use a long string
+application.security.jwt.secret-key=${JWT_SECRET_KEY}
+application.security.jwt.expiration=86400000
+
+# Add your Google credentials
+spring.security.oauth2.client.registration.google.client-id=${YOUR_CLIENT_ID}
+spring.security.oauth2.client.registration.google.client-secret=${YOUR_CLIENT_SECRET}
 ```
 
 ---
 
-## 📡 API Endpoints (Core)
+## 📡 API Documentation
 
-| Method     |             Endpoint                | Description                              |
-|------------|-------------------------------------|------------------------------------------|
-| `POST`     | `/api/notes`                        | Create a note (triggers AI & Graph Sync) |
-| `GET`      | `/api/search/hybrid`                | Perform semantic + keyword search        |
-| `GET`      | `/api/graph`                        | Get node-edge data for visualization     |
-| `GET`      | `/api/recommendations/topics/{id}`  | Get graph-based topic suggestions        |
+### 1. Authentication
+
+| Method       | Endpoint                           | Body (JSON)                         | Description                       |
+|--------------|------------------------------------|-------------------------------------|-----------------------------------|
+| `POST`       | `/api/auth/register`               | `{"fullName", "email", "password"}` | Creates a new user & returns JWT. |
+| `POST`       | `/api/auth/login`                  | `{"email", "password"}`             | Validates user & returns JWT.     |
+| `GET`        | `/oauth2/authorization/google`     | N/A                                 | Redirects to Google Login flow.   |
+
+
+### 2. Note Management (Requires Bearer Token)
+
+| Method      | Endpoint              | Body (JSON)            | Description                                                    |
+|-------------|-----------------------|------------------------|----------------------------------------------------------------|
+| `POST`      | `/api/notes`          | `{"title", "content"}` | Creates note, triggers AI analysis, and syncs to Graph/Vector. |
+| `GET`       | `/api/notes`          | N/A                    | Returns all notes belonging only to the logged-in user.        |
+| `GET`       | `/api/notes/{id}`     | N/A                    | Returns a specific note by ID.                                 |
+
+
+### 3. Knowledge & Search (Requires Bearer Token)
+
+| Method | Endpoint              | Query Param    | Description                                                   |
+|--------|-----------------------|----------------|---------------------------------------------------------------|
+| `GET`  | `/api/search/hybrid`  | `?query=...`   | Returns combined Semantic and Keyword results.                |
+| `GET`  | `/api/graph`          | N/A            | Returns JSON nodes and edges for private graph visualization. |
 
 ---
 
-## 📝 Future Roadmap
+## 🧪 Testing
+The system is guarded by a comprehensive test suite to ensure stability during future updates.
 
-* OAuth2 & JWT User Authentication.
-* Multi-user data isolation.
-* Real-time knowledge graph rendering in Flutter.
+### How to run tests:
+```bash
+./mvnw test
+```
+
+### Test Coverage:
+1. **JwtServiceTest:** Validates token generation and parsing logic.
+
+2. **AuthenticationServiceTest:** Mocks the database to test registration business logic.
+
+3. **NoteServiceIntegrationTest:** Verifies the full flow from Note creation to PostgreSQL persistence with DB rollbacks.
+
+4. **AuthControllerIntegrationTest:** Ensures the Spring Security Filter Chain correctly blocks/permits endpoints.
+
+5. **SearchSecurityIntegrationTest:** Programmatically proves that User B cannot find User A's private data.
+
+---
+
+## 📝 Roadmap (Phase 2: The Interface)
+
+* **Flutter App:** Cross-platform mobile client with real-time sync.
+
+* **Interactive Graph:** D3.js or Force-directed graph visualization in the UI.
+
+* **Agentic Chat:** A "Vault Assistant" that can answer questions based only on your private notes using RAG.
+
+* **Markdown Support:** Full rich-text rendering for notes.
 
 ---
