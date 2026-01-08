@@ -59,7 +59,8 @@ The system operates on a "Three-Brain" Architecture:
 * PostgreSQL 16+
 * Neo4j 5.x+
 * Groq API Key
-
+* Jwt Secret Key
+* Google Client Id and Google Client Secret
 
 ### Configuration
 
@@ -88,6 +89,23 @@ application.security.jwt.expiration=86400000
 spring.security.oauth2.client.registration.google.client-id=${YOUR_CLIENT_ID}
 spring.security.oauth2.client.registration.google.client-secret=${YOUR_CLIENT_SECRET}
 ```
+
+### Configure Google Cloud Console
+
+Steps to get a **Client ID** and **Secret** from Google.
+
+1. Go to the [Google Cloud Console](https://console.cloud.google.com).
+
+2. Create a new project named `AI-Knowledge-Vault`.
+
+3. Go to **APIs & Services > OAuth consent screen** and configure it (External).
+
+4. Go to Credentials > Create Credentials > OAuth client ID. 
+    - **Application type:** Web application.
+
+    - **Authorized redirect URIs:** `http://localhost:8080/login/oauth2/code/google`
+
+5. Copy your **Client ID** and **Client Secret**.
 
 ---
 
